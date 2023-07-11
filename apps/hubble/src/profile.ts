@@ -38,6 +38,18 @@ function formatPercentage(num?: number): string {
   return `${(num * 100).toFixed(2)}%`;
 }
 
+// A function that takes an array and splits into `numChunks` chunks
+export function splitArrayIntoChunks<T>(array: T[], numChunks: number): T[][] {
+  const chunks: T[][] = [];
+  const chunkSize = Math.ceil(array.length / numChunks);
+
+  for (let i = 0; i < array.length; i += chunkSize) {
+    chunks.push(array.slice(i, i + chunkSize));
+  }
+
+  return chunks;
+}
+
 // A class to track usage of key/value bytes in the DB
 class KeysProfile {
   count: number;

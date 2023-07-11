@@ -15,7 +15,7 @@ export class MethodCallProfile {
   }
 }
 
-export class RpcMethodProfile {
+export class MethodProfile {
   label: string;
   numCalls: number;
   totalBytes: number;
@@ -79,29 +79,52 @@ export class RpcMethodProfile {
 }
 
 export class SyncEngineProfiler {
-  private _rpcMethodProfiles: Map<string, RpcMethodProfile>;
+  private _methodProfiles: Map<string, MethodProfile>;
   private _syncStartTime: number;
 
   constructor() {
-    this._rpcMethodProfiles = new Map();
+    this._methodProfiles = new Map();
 
-    this._rpcMethodProfiles.set("getSyncMetadataByPrefix", new RpcMethodProfile("getSyncMetadataByPrefix"));
-    this._rpcMethodProfiles.set("getAllSyncIdsByPrefix", new RpcMethodProfile("getAllSyncIdsByPrefix"));
-    this._rpcMethodProfiles.set("getAllMessagesBySyncIds", new RpcMethodProfile("getAllMessagesBySyncIds"));
+    this._methodProfiles.set("getSyncMetadataByPrefix", new MethodProfile("getSyncMetadataByPrefix"));
+    this._methodProfiles.set("getAllSyncIdsByPrefix", new MethodProfile("getAllSyncIdsByPrefix"));
+    this._methodProfiles.set("getAllMessagesBySyncIds", new MethodProfile("getAllMessagesBySyncIds"));
+    this._methodProfiles.set("mergeMessages", new MethodProfile("mergeMessages"));
 
     this._syncStartTime = 0;
   }
 
-  public getRpcMethodProfiles(): Map<string, RpcMethodProfile> {
-    for (const [_, profile] of this._rpcMethodProfiles) {
+  public getAllMethodProfiles(): Map<string, MethodProfile> {
+    for (const [_, profile] of this._methodProfiles) {
       profile.updateStats();
     }
 
-    return this._rpcMethodProfiles;
+    return this._methodProfiles;
+  }
+
+  public getMethodProfile(method: string): MethodProfile {
+    const profile = this._methodProfiles.get(method);
+    if (profile === undefined) {
+      throw new Error(`Method ${method} not found in profiler`);
+    }
+
+    return profile;
   }
 
   public getSyncDuration(): number {
     return Date.now() - this._syncStartTime;
+  }
+
+  public durationToPrettyPrintObject(): string[][] {
+    const data = [];
+
+    // First, write the headers
+    const headers = ["", "Duration (s)"];
+    data.push(headers);
+
+    // Total time
+    data.push(["Wall Time", formatNumber(this.getSyncDuration())]);
+
+    return data;
   }
 
   public latenciesToPrettyPrintObject(): string[][] {
@@ -112,7 +135,7 @@ export class SyncEngineProfiler {
     data.push(headers);
 
     // Then, write the data for each method
-    for (const [method, profile] of this._rpcMethodProfiles) {
+    for (const [method, profile] of this._methodProfiles) {
       const row = [
         method,
         formatNumber(profile.numCalls),
@@ -135,7 +158,7 @@ export class SyncEngineProfiler {
     data.push(headers);
 
     // Then, write the data for each method
-    for (const [method, profile] of this._rpcMethodProfiles) {
+    for (const [method, profile] of this._methodProfiles) {
       const row = [
         method,
         formatNumber(profile.numCalls),
@@ -184,7 +207,7 @@ export class SyncEngineProfiler {
             //   },
             //   "RPC call",
             // );
-            me._rpcMethodProfiles.get(prop)?.addCall(end - start, resultBytes, 1);
+            me._methodProfiles.get(prop)?.addCall(end - start, resultBytes, 1);
           } else if (prop === "getAllSyncIdsByPrefix") {
             const logArgs = Buffer.from(args[0]["prefix"]).toString("hex");
             const numSyncIds = result.value.syncIds.length;
@@ -199,7 +222,7 @@ export class SyncEngineProfiler {
             //   },
             //   "RPC call",
             // );
-            me._rpcMethodProfiles.get(prop)?.addCall(end - start, resultBytes, numSyncIds);
+            me._methodProfiles.get(prop)?.addCall(end - start, resultBytes, numSyncIds);
           } else if (prop === "getAllMessagesBySyncIds") {
             const numMessages = result.value.messages.length;
             const resultBytes = Math.floor(JSON.stringify(result).length / 2); // 2 hex chars per byte
@@ -212,7 +235,7 @@ export class SyncEngineProfiler {
             //   },
             //   "RPC call",
             // );
-            me._rpcMethodProfiles.get(prop)?.addCall(end - start, resultBytes, numMessages);
+            me._methodProfiles.get(prop)?.addCall(end - start, resultBytes, numMessages);
           }
 
           return result;
