@@ -1,7 +1,7 @@
 import { faker } from "@faker-js/faker";
 import * as protobufs from "./protobufs";
 import { err, ok } from "neverthrow";
-import { bytesToUtf8String } from "./bytes";
+import { bytesToUtf8String, utf8StringToBytes } from "./bytes";
 import { HubError } from "./errors";
 import { Factories } from "./factories";
 import { fromFarcasterTime, getFarcasterTime } from "./time";
@@ -796,7 +796,7 @@ describe("validateUserDataAddBody", () => {
   });
 
   test("succeeds for ens names", async () => {
-    const body = Factories.UserDataBody.build({ type: UserDataType.FNAME, value: "averylongensname.eth" });
+    const body = Factories.UserDataBody.build({ type: UserDataType.USERNAME, value: "averylongensname.eth" });
     expect(validations.validateUserDataAddBody(body)).toEqual(ok(body));
   });
 
@@ -858,7 +858,7 @@ describe("validateUsernameProof", () => {
   });
   test("when name does not end with .eth", async () => {
     const proof = await Factories.UsernameProofMessage.create({
-      data: { usernameProofBody: { name: Factories.Fname.build() } },
+      data: { usernameProofBody: { name: utf8StringToBytes("aname")._unsafeUnwrap() } },
     });
     const result = await validations.validateUsernameProofBody(proof.data.usernameProofBody, proof.data);
     const hubError = result._unsafeUnwrapErr();

@@ -786,7 +786,9 @@ class SyncEngine extends TypedEmitter<SyncEvents> {
     if (this.shouldCompactDb && !this._isCompacting) {
       this._isCompacting = true;
       logger.info("Starting DB compaction");
+
       await this._db.compact().catch((e) => log.warn(e, `Error compacting DB: ${e.message}`));
+
       logger.info("Completed DB compaction");
       this._messagesSinceLastCompaction = 0;
       this._isCompacting = false;
