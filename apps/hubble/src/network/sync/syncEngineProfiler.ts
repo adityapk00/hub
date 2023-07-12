@@ -122,7 +122,7 @@ export class SyncEngineProfiler {
     data.push(headers);
 
     // Total time
-    data.push(["Wall Time", formatNumber(this.getSyncDuration())]);
+    data.push(["Wall Time", Math.floor(this.getSyncDuration() / 1000).toString()]);
 
     return data;
   }

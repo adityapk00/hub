@@ -37,7 +37,7 @@ import { splitArrayIntoChunks } from "../../profile.js";
 // attempt to sync messages that are older than this time.
 const SYNC_THRESHOLD_IN_SECONDS = 10;
 const HASHES_PER_FETCH = 128;
-const SYNC_PARALLELISM = 8; // Fetch upto 8 leaf nodes in parallel
+const SYNC_PARALLELISM = 16; // Fetch upto 16 leaf nodes in parallel
 const SYNC_INTERRUPT_TIMEOUT = 30 * 1000; // 30 seconds
 const COMPACTION_THRESHOLD = 100_000; // Sync
 const BAD_PEER_BLOCK_TIMEOUT = 5 * 60 * 60 * 1000; // 5 hours, arbitrary, may need to be adjusted as network grows
