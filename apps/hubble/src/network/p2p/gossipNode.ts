@@ -314,8 +314,13 @@ export class GossipNode extends TypedEmitter<NodeEvents> {
   }
 
   /** Return if we have any inbound P2P connections */
-  hasInboundConnections(): boolean {
-    return this._node?.getConnections().some((conn) => conn.stat.direction === "inbound") ?? false;
+  getInboundConnections(): number {
+    return (
+      this._node
+        ?.getConnections()
+        .map<number>((conn) => (conn.stat.direction === "inbound" ? 1 : 0))
+        .reduce((a, b) => a + b, 0) ?? 0
+    );
   }
 
   registerListeners() {

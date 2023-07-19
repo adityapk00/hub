@@ -76,6 +76,8 @@ type SyncStatus = {
   divergencePrefix: string;
   divergenceSecondsAgo: number;
   lastBadSync: number;
+  gossipIncomingConnections: number;
+  rpcIncomingConnections: number;
 };
 
 type DbStats = {

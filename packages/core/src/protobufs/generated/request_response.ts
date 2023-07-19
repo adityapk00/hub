@@ -64,6 +64,8 @@ export interface SyncStatus {
   theirMessages: number;
   ourMessages: number;
   lastBadSync: number;
+  gossipIncomingConnections: number;
+  rpcIncomingConnections: number;
 }
 
 export interface TrieNodeMetadataResponse {
@@ -791,6 +793,8 @@ function createBaseSyncStatus(): SyncStatus {
     theirMessages: 0,
     ourMessages: 0,
     lastBadSync: 0,
+    gossipIncomingConnections: 0,
+    rpcIncomingConnections: 0,
   };
 }
 
@@ -819,6 +823,12 @@ export const SyncStatus = {
     }
     if (message.lastBadSync !== 0) {
       writer.uint32(64).int64(message.lastBadSync);
+    }
+    if (message.gossipIncomingConnections !== 0) {
+      writer.uint32(72).int32(message.gossipIncomingConnections);
+    }
+    if (message.rpcIncomingConnections !== 0) {
+      writer.uint32(80).int32(message.rpcIncomingConnections);
     }
     return writer;
   },
@@ -886,6 +896,20 @@ export const SyncStatus = {
 
           message.lastBadSync = longToNumber(reader.int64() as Long);
           continue;
+        case 9:
+          if (tag != 72) {
+            break;
+          }
+
+          message.gossipIncomingConnections = reader.int32();
+          continue;
+        case 10:
+          if (tag != 80) {
+            break;
+          }
+
+          message.rpcIncomingConnections = reader.int32();
+          continue;
       }
       if ((tag & 7) == 4 || tag == 0) {
         break;
@@ -905,6 +929,8 @@ export const SyncStatus = {
       theirMessages: isSet(object.theirMessages) ? Number(object.theirMessages) : 0,
       ourMessages: isSet(object.ourMessages) ? Number(object.ourMessages) : 0,
       lastBadSync: isSet(object.lastBadSync) ? Number(object.lastBadSync) : 0,
+      gossipIncomingConnections: isSet(object.gossipIncomingConnections) ? Number(object.gossipIncomingConnections) : 0,
+      rpcIncomingConnections: isSet(object.rpcIncomingConnections) ? Number(object.rpcIncomingConnections) : 0,
     };
   },
 
@@ -918,6 +944,10 @@ export const SyncStatus = {
     message.theirMessages !== undefined && (obj.theirMessages = Math.round(message.theirMessages));
     message.ourMessages !== undefined && (obj.ourMessages = Math.round(message.ourMessages));
     message.lastBadSync !== undefined && (obj.lastBadSync = Math.round(message.lastBadSync));
+    message.gossipIncomingConnections !== undefined &&
+      (obj.gossipIncomingConnections = Math.round(message.gossipIncomingConnections));
+    message.rpcIncomingConnections !== undefined &&
+      (obj.rpcIncomingConnections = Math.round(message.rpcIncomingConnections));
     return obj;
   },
 
@@ -935,6 +965,8 @@ export const SyncStatus = {
     message.theirMessages = object.theirMessages ?? 0;
     message.ourMessages = object.ourMessages ?? 0;
     message.lastBadSync = object.lastBadSync ?? 0;
+    message.gossipIncomingConnections = object.gossipIncomingConnections ?? 0;
+    message.rpcIncomingConnections = object.rpcIncomingConnections ?? 0;
     return message;
   },
 };

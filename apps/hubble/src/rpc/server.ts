@@ -279,8 +279,8 @@ export default class Server {
     return this.port;
   }
 
-  public hasInboundConnections() {
-    return this.incomingConnections > 0;
+  public getInboundConnections() {
+    return this.incomingConnections;
   }
 
   getImpl = (): HubServiceServer => {
@@ -338,6 +338,7 @@ export default class Server {
                 divergenceSecondsAgo: status.divergenceSecondsAgo,
                 ourMessages: status.ourSnapshot.numMessages,
                 theirMessages: status.theirSnapshot.numMessages,
+                rpcIncomingConnections: status.rpcIncomingConnections,
               });
               response.syncStatus.push(peerStatus);
             }

@@ -38,11 +38,11 @@ export class CheckIncomingPortsJobScheduler {
   }
 
   async doJobs(): HubAsyncResult<void> {
-    if (!this._gossipNode.hasInboundConnections()) {
+    if (this._gossipNode.getInboundConnections() === 0) {
       log.warn({}, "No inbound Gossip connections!! Is your gossip port open?");
     }
 
-    if (!this._rpcServer.hasInboundConnections()) {
+    if (this._rpcServer.getInboundConnections() === 0) {
       log.warn({}, "No inbound RPC connections!! Is your RPC port open?");
     }
 
