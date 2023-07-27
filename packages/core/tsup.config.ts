@@ -7,5 +7,5 @@ export default defineConfig({
   dts: true,
   clean: true,
   shims: true,
-  banner: { js: 'import { createRequire } from "module";const require = createRequire(import.meta.url);' },
+  // banner: { js: 'import { createRequire } from "module";const require = createRequire(import.meta.url);' },
 });

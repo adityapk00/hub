@@ -22,9 +22,11 @@
     "viem": "^1.1.4"
   },
   "scripts": {
+    "artifact:rust": "cp src/addon/index.node dist/",
     "build:rust": "cargo-cp-artifact -ac addon src/addon/index.node -- cargo build --manifest-path ./src/addon/Cargo.toml --message-format=json-render-diagnostics --release",
-    "build": "yarn build:rust && tsup --config tsup.config.ts",
-    "clean": "rimraf ./dist",
+    "build": "yarn build:rust && tsup --config tsup.config.ts && yarn artifact:rust",
+    "clean:rust": "cargo clean --manifest-path ./src/addon/Cargo.toml && rimraf src/addon/index.node",
+    "clean": "rimraf ./dist && yarn clean:rust",
     "protoc": "protoc --plugin=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=./src/protobufs/generated/ --ts_proto_opt=esModuleInterop=true,exportCommonSymbols=false,outputServices=false,useOptionals=none,unrecognizedEnum=false,removeEnumPrefix=true --proto_path=../../protobufs/schemas  ../../protobufs/schemas/*",
     "lint": "rome format src/ --write && rome check src/ --apply",
     "lint:ci": "rome ci src/",
