@@ -296,6 +296,34 @@ install_docker() {
 }
 
 start_hubble() {
+    # Variables
+    DOCKER_IMAGE="farcasterxyz/hubble:latest"
+    DOCKER_REPO="farcasterxyz/hubble"
+
+    # Get auth token (assuming public image; modify for private repos)
+    TOKEN=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:$DOCKER_REPO:pull" | jq -r .token)
+
+    # Exit if TOKEN retrieval fails
+    if [ -z "$TOKEN" ]; then
+        echo "Failed to retrieve token."
+        exit 1
+    fi
+
+    # Get remote digest
+    REMOTE_DIGEST=$(curl -s -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.docker.distribution.manifest.v2+json" https://registry-1.docker.io/v2/$DOCKER_REPO/manifests/latest | jq -r .config.digest)
+
+    # Get local digest
+    LOCAL_DIGEST=$(docker inspect --format='{{.Id}}' $DOCKER_IMAGE | grep -Eo "sha256:[a-f0-9]{64}")
+    
+    # Check if hubble service is running
+    hubble_running=$(docker-compose ps hubble | grep -q 'Up' && echo "yes" || echo "no")
+
+    # Compare digests and check if hubble service is running
+    if [[ "$REMOTE_DIGEST" == "$LOCAL_DIGEST" ]] && [[ "$hubble_running" == "yes" ]]; then
+        echo "✅ Already have latest hubble"
+        return 1
+    fi
+
     # First, make sure to pull all the latest images in docker compose
     docker compose pull
 
@@ -317,6 +345,28 @@ start_hubble() {
 
     # Start the "hubble" service
     docker compose up -d hubble
+}
+
+install_to_cron() {
+    SCRIPT_PATH="$(realpath $0)"
+
+    # Check if the script is already in crontab
+    if crontab -l 2>/dev/null| grep -q "$SCRIPT_PATH upgrade"; then
+        echo "✅ Auto upgrade installed"
+        return
+    fi
+
+    # Generate a random minute and hour for the cron job between 1am and 4am
+    RANDOM_MINUTE=$RANDOM
+    let "RANDOM_MINUTE %= 60"
+    RANDOM_HOUR=$RANDOM
+    let "RANDOM_HOUR %= 3"
+    let "RANDOM_HOUR += 1"
+
+    # Add to crontab
+    (crontab -l 2>/dev/null; echo "$RANDOM_MINUTE $RANDOM_HOUR * * * $SCRIPT_PATH upgrade") | crontab -
+
+    echo "✅ Auto upgrade installed. Will check upgrade at $RANDOM_HOUR:$RANDOM_MINUTE every night."
 }
 
 reexec_as_root_if_needed() {
@@ -372,6 +422,9 @@ if [ "$1" == "upgrade" ]; then
 
     # Start the hubble service
     start_hubble
+
+    # Install the auto upgrade
+    install_to_cron
 
     echo "✅ Upgrade complete."    
     echo ""
