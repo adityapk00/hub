@@ -316,7 +316,7 @@ start_hubble() {
     LOCAL_DIGEST=$(docker inspect --format='{{.Id}}' $DOCKER_IMAGE | grep -Eo "sha256:[a-f0-9]{64}")
     
     # Check if hubble service is running
-    hubble_running=$(docker-compose ps hubble | grep -q 'Up' && echo "yes" || echo "no")
+    hubble_running=$(docker compose ps hubble | grep -q 'Up' && echo "yes" || echo "no")
 
     # Compare digests and check if hubble service is running
     if [[ "$REMOTE_DIGEST" == "$LOCAL_DIGEST" ]] && [[ "$hubble_running" == "yes" ]]; then
