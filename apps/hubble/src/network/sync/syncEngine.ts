@@ -38,6 +38,7 @@ import { SyncEngineProfiler } from "./syncEngineProfiler.js";
 import os from "os";
 import { addProgressBar, finishAllProgressBars } from "../../utils/progressBars.js";
 import { SingleBar } from "cli-progress";
+import semver from "semver";
 
 // Number of seconds to wait for the network to "settle" before syncing. We will only
 // attempt to sync messages that are older than this time.
@@ -83,7 +84,7 @@ class MergeResult {
   }
 
   addResult(result: MergeResult) {
-    this.total += result.total;
+    this.total += result.successCount + result.deferredCount + result.errCount;
     this.successCount += result.successCount;
     this.deferredCount += result.deferredCount;
     this.errCount += result.errCount;
@@ -351,10 +352,20 @@ class SyncEngine extends TypedEmitter<SyncEvents> {
 
     // If we don't have a peer contact, get a random one from the current list
     if (!peerContact) {
-      // Pick a random key
-      const randomPeer = Array.from(this.currentHubPeerContacts.keys())[
-        Math.floor(Math.random() * this.currentHubPeerContacts.size)
-      ] as string;
+      const lowerVersionPeers: string[] = [];
+      const higherOrEqualVersionPeers: string[] = [];
+
+      this.currentHubPeerContacts.forEach((c, peerKey) => {
+        if (semver.lt(c.contactInfo.appVersion, APP_VERSION)) {
+          lowerVersionPeers.push(peerKey);
+        } else {
+          higherOrEqualVersionPeers.push(peerKey);
+        }
+      });
+
+      // Making it 3 times more likely to pick a peer with version >= APP_VERSION
+      const combinedPeers = [...Array(3).fill(higherOrEqualVersionPeers).flat(), ...lowerVersionPeers];
+      const randomPeer = combinedPeers[Math.floor(Math.random() * combinedPeers.length)] as string;
 
       const c = this.currentHubPeerContacts.get(randomPeer);
       peerContact = c?.contactInfo;
@@ -584,6 +595,14 @@ class SyncEngine extends TypedEmitter<SyncEvents> {
           const result = await this.fetchAndMergeMessages(missingIds, rpcClient);
           fullSyncResult.addResult(result);
           progressBar?.increment(result.total);
+
+          if (fullSyncResult.total > BAD_PEER_MESSAGE_THRESHOLD) {
+            if (fullSyncResult.errCount / fullSyncResult.total > 0.8) {
+              // This sync is going very badly. Interrupt
+              log.warn({ peerId, fullSyncResult }, "Sync is going very badly. Too many errors. Interrupting sync");
+              this._currentSyncStatus.interruptSync = true;
+            }
+          }
 
           const avgPeerNumMessages = this.avgPeerNumMessages();
           statsd().gauge(
