@@ -257,14 +257,14 @@ class MerkleTrieImpl {
     return new Promise((resolve) => {
       this._lock.writeLock(async (release) => {
         try {
-          const { status, dbUpdatesMap } = await this._root.insert(id, this._dbGetter(), new Map());
+          const { status, dbUpdatesMap } = await this._root.insert([id], this._dbGetter(), new Map());
 
           this._updatePendingDbUpdates(dbUpdatesMap);
 
           // Write the transaction to the DB
           await this._unloadFromMemory(true);
 
-          resolve(status);
+          resolve(status[0] as boolean);
         } catch (e) {
           log.error({ e }, `Insert Error for ${id}: ${e?.toString()}`);
 
@@ -284,7 +284,7 @@ class MerkleTrieImpl {
           this._updatePendingDbUpdates(dbUpdatesMap);
           await this._unloadFromMemory(true);
 
-          resolve(status);
+          resolve(status[0] as boolean);
         } catch (e) {
           log.error({ e }, `Delete Error for ${id}: ${e?.toString()}`);
 

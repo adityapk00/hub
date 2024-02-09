@@ -42,7 +42,7 @@ describe("TrieNode", () => {
       expect(root.items).toEqual(0);
       expect(root.hash.length).toEqual(0);
 
-      await root.insert(id.syncId(), dbGetter, new Map());
+      await root.insert([id.syncId()], dbGetter, new Map());
 
       expect(root.items).toEqual(1);
       expect(root.hash).toBeTruthy();
@@ -52,10 +52,10 @@ describe("TrieNode", () => {
       const root = new TrieNode();
       const id = await NetworkFactories.SyncId.create();
 
-      await root.insert(id.syncId(), dbGetter, new Map());
+      await root.insert([id.syncId()], dbGetter, new Map());
       expect(root.items).toEqual(1);
       const previousHash = root.hash;
-      await root.insert(id.syncId(), dbGetter, new Map());
+      await root.insert([id.syncId()], dbGetter, new Map());
 
       expect(root.hash).toEqual(previousHash);
       expect(root.items).toEqual(1);
@@ -65,7 +65,7 @@ describe("TrieNode", () => {
       const trie = new TrieNode();
       const syncId = await NetworkFactories.SyncId.create();
 
-      await trie.insert(syncId.syncId(), dbGetter, new Map());
+      await trie.insert([syncId.syncId()], dbGetter, new Map());
 
       expect(trie.value).toBeFalsy();
     });
@@ -74,7 +74,7 @@ describe("TrieNode", () => {
       const root = new TrieNode();
       const id = await NetworkFactories.SyncId.create();
 
-      await root.insert(id.syncId(), dbGetter, new Map());
+      await root.insert([id.syncId()], dbGetter, new Map());
       let node = root;
       // Timestamp portion of the key is not collapsed, but the hash portion is
       for (let i = 0; i < TIMESTAMP_LENGTH; i++) {
@@ -106,10 +106,11 @@ describe("TrieNode", () => {
 
       const root = new TrieNode();
 
-      await root.insert(id1.syncId(), dbGetter, new Map());
-      await root.insert(id2.syncId(), dbGetter, new Map());
+      await root.insert([id1.syncId()], dbGetter, new Map());
+      await root.insert([id2.syncId()], dbGetter, new Map());
 
       const splitNode = traverse(root);
+      console.log(splitNode);
       expect(splitNode.items).toEqual(2);
       const children = Array.from(splitNode.children);
       const firstChild = children[0] as [number, TrieNode];
@@ -127,7 +128,9 @@ describe("TrieNode", () => {
 
     test("Inserting wrong keylength throws", async () => {
       const root = new TrieNode();
-      await expect(root.insert(Buffer.from([1, 2, 3]), dbGetter, new Map(), 3)).rejects.toThrow("Key length exceeded");
+      await expect(root.insert([Buffer.from([1, 2, 3])], dbGetter, new Map(), 3)).rejects.toThrow(
+        "Key length exceeded",
+      );
     });
   });
 
@@ -136,7 +139,7 @@ describe("TrieNode", () => {
       const root = new TrieNode();
       const id = await NetworkFactories.SyncId.create();
 
-      await root.insert(id.syncId(), dbGetter, new Map());
+      await root.insert([id.syncId()], dbGetter, new Map());
       expect(root.items).toEqual(1);
 
       await root.delete(id.syncId(), dbGetter, new Map());
@@ -149,9 +152,9 @@ describe("TrieNode", () => {
       const id1 = await NetworkFactories.SyncId.create(undefined, { transient: { date: sharedDate } });
       const id2 = await NetworkFactories.SyncId.create(undefined, { transient: { date: sharedDate } });
 
-      await root.insert(id1.syncId(), dbGetter, new Map());
+      await root.insert([id1.syncId()], dbGetter, new Map());
       const previousHash = root.hash;
-      await root.insert(id2.syncId(), dbGetter, new Map());
+      await root.insert([id2.syncId()], dbGetter, new Map());
       expect(root.items).toEqual(2);
 
       await root.delete(id2.syncId(), dbGetter, new Map());
@@ -169,10 +172,10 @@ describe("TrieNode", () => {
       });
 
       const root = new TrieNode();
-      await root.insert(id1.syncId(), dbGetter, new Map());
+      await root.insert([id1.syncId()], dbGetter, new Map());
       const previousRootHash = root.hash;
       const leafNode = traverse(root);
-      await root.insert(id2.syncId(), dbGetter, new Map());
+      await root.insert([id2.syncId()], dbGetter, new Map());
 
       expect(root.hash).not.toEqual(previousRootHash);
 
@@ -192,10 +195,7 @@ describe("TrieNode", () => {
 
       const root = new TrieNode();
 
-      for (let i = 0; i < ids.length; i++) {
-        // Safety: i is controlled by the loop and cannot be used to inject
-        await root.insert(ids[i] as Uint8Array, dbGetter, new Map());
-      }
+      await root.insert(ids, dbGetter, new Map());
 
       // Remove the first id
       await root.delete(ids[0] as Uint8Array, dbGetter, new Map());
@@ -212,10 +212,7 @@ describe("TrieNode", () => {
       );
       const root = new TrieNode();
 
-      for (let i = 0; i < ids.length; i++) {
-        // Safety: i is controlled by the loop and cannot be used to inject
-        await root.insert(ids[i] as Uint8Array, dbGetter, new Map());
-      }
+      await root.insert(ids, dbGetter, new Map());
 
       // Remove the first id
       await root.delete(ids[0] as Uint8Array, dbGetter, new Map());
@@ -236,7 +233,7 @@ describe("TrieNode", () => {
       const root = new TrieNode();
       const id = await NetworkFactories.SyncId.create();
 
-      await root.insert(id.syncId(), dbGetter, new Map());
+      await root.insert([id.syncId()], dbGetter, new Map());
       expect(root.items).toEqual(1);
 
       expect(await root.exists(id.syncId(), dbGetter)).toBeTruthy();
@@ -246,7 +243,7 @@ describe("TrieNode", () => {
       const root = new TrieNode();
       const id = await NetworkFactories.SyncId.create();
 
-      await root.insert(id.syncId(), dbGetter, new Map());
+      await root.insert([id.syncId()], dbGetter, new Map());
       expect(root.items).toEqual(1);
 
       await root.delete(id.syncId(), dbGetter, new Map());
@@ -263,7 +260,7 @@ describe("TrieNode", () => {
       });
 
       const root = new TrieNode();
-      await root.insert(id1.syncId(), dbGetter, new Map());
+      await root.insert([id1.syncId()], dbGetter, new Map());
 
       // id2 shares the same prefix, but doesn't exist, so it should return undefined
 

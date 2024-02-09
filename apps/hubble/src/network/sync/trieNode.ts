@@ -25,7 +25,7 @@ export type TrieSnapshot = {
 };
 
 type TrieNodeOpResult = {
-  status: boolean;
+  status: boolean[];
   dbUpdatesMap: Map<Buffer, Buffer>;
 };
 
@@ -69,63 +69,96 @@ class TrieNode {
    * every node that was traversed.
    */
   public async insert(
-    key: Uint8Array,
+    keys: Uint8Array[],
     dbGetter: DBGetter,
     dbUpdatesMap: Map<Buffer, Buffer>,
     current_index = 0,
   ): Promise<TrieNodeOpResult> {
-    if (current_index > key.length) {
-      throw new Error("Key length exceeded");
-    }
-    const char = key.at(current_index) as number;
-
-    // Do not compact the timestamp portion of the trie, since it is used to compare snapshots
-    if (current_index >= TIMESTAMP_LENGTH && this.isLeaf && !this._key) {
-      // Reached a leaf node with no value, insert it
-
-      // The key is copied to a new Uint8Array to avoid using Buffer's shared memory pool. Since
-      // TrieNode are long-lived objects, referencing shared memory pool will prevent them from being
-      // freed and leak memory.
-      this._key = key === undefined ? undefined : new Uint8Array(key);
-
-      await this._updateHash(key.slice(0, current_index), dbGetter);
-      this._items += 1;
-
-      // Also save to db
-      this.saveToDBTx(dbUpdatesMap, key.slice(0, current_index));
-
-      return { status: true, dbUpdatesMap };
+    if (keys.length === 0) {
+      throw new Error("No keys to insert");
     }
 
-    if (current_index >= TIMESTAMP_LENGTH && this.isLeaf) {
-      if (bytesCompare(this._key ?? new Uint8Array(), key) === 0) {
-        // If the same key exists, do nothing
-        return { status: false, dbUpdatesMap };
+    const prefixPath = (keys[0] as Uint8Array).slice(0, current_index);
+
+    const toRecurse = new Map<number, { key: Uint8Array; i: number }[]>();
+    const results = keys.map(() => false);
+
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i] as Uint8Array;
+
+      if (current_index > key.length) {
+        throw new Error("Key length exceeded");
+      }
+      const char = key.at(current_index) as number;
+
+      // Do not compact the timestamp portion of the trie, since it is used to compare snapshots
+      if (current_index >= TIMESTAMP_LENGTH && this.isLeaf && !this._key) {
+        // Reached a leaf node with no value, insert it
+
+        // The key is copied to a new Uint8Array to avoid using Buffer's shared memory pool. Since
+        // TrieNode are long-lived objects, referencing shared memory pool will prevent them from being
+        // freed and leak memory.
+        this._key = key === undefined ? undefined : new Uint8Array(key);
+
+        await this._updateHash(key.slice(0, current_index), dbGetter);
+        this._items += 1;
+
+        // Also save to db
+        this.saveToDBTx(dbUpdatesMap, key.slice(0, current_index));
+
+        // return { status: true, dbUpdatesMap };
+        results[i] = true;
+        continue;
       }
 
-      // If the key is different, and a value exists, then split the node
-      await this._splitLeafNode(current_index, dbGetter, dbUpdatesMap);
+      if (current_index >= TIMESTAMP_LENGTH && this.isLeaf) {
+        if (bytesCompare(this._key ?? new Uint8Array(), key) === 0) {
+          // If the same key exists, do nothing
+          // return { status: false, dbUpdatesMap };
+          results[i] = false;
+          continue;
+        }
+
+        // If the key is different, and a value exists, then split the node
+        await this._splitLeafNode(current_index, dbGetter, dbUpdatesMap);
+      }
+
+      if (!this._children.has(char)) {
+        this._addChild(char);
+      }
+
+      const subKeys = toRecurse.get(char) ?? [];
+      subKeys.push({ key, i });
+      toRecurse.set(char, subKeys);
     }
 
-    if (!this._children.has(char)) {
-      this._addChild(char);
+    for (const [char, keys] of toRecurse) {
+      // Recurse into a non-leaf node and instruct it to insert the value
+      const child = await this._getOrLoadChild(prefixPath, char, dbGetter);
+
+      const subResults = await child.insert(
+        keys.map((k) => k.key),
+        dbGetter,
+        dbUpdatesMap,
+        current_index + 1,
+      );
+
+      subResults.status.forEach((status, i) => {
+        results[keys[i]?.i as number] = status;
+      });
     }
 
-    // Recurse into a non-leaf node and instruct it to insert the value
-    const child = await this._getOrLoadChild(key.slice(0, current_index), char, dbGetter);
-    const result = await child.insert(key, dbGetter, dbUpdatesMap, current_index + 1);
+    const successes = results.reduce((sum, r) => sum + (r ? 1 : 0), 0);
 
-    const status = result.status;
-
-    if (status) {
-      this._items += 1;
-      await this._updateHash(key.slice(0, current_index), dbGetter);
+    if (successes > 0) {
+      this._items += successes;
+      await this._updateHash(prefixPath, dbGetter);
 
       // Save the current node to DB
-      this.saveToDBTx(dbUpdatesMap, key.slice(0, current_index));
+      this.saveToDBTx(dbUpdatesMap, prefixPath);
     }
 
-    return { status, dbUpdatesMap };
+    return { status: results, dbUpdatesMap };
   }
 
   /**
@@ -149,9 +182,9 @@ class TrieNode {
         this._key = undefined;
 
         this.deleteFromDbTx(dbUpdatesMap, key.slice(0, current_index));
-        return { status: true, dbUpdatesMap };
+        return { status: [true], dbUpdatesMap };
       } else {
-        return { status: false, dbUpdatesMap };
+        return { status: [false], dbUpdatesMap };
       }
     }
 
@@ -160,7 +193,7 @@ class TrieNode {
     }
     const char = key.at(current_index) as number;
     if (!this._children.has(char)) {
-      return { status: false, dbUpdatesMap };
+      return { status: [false], dbUpdatesMap };
     }
 
     const childTrieNode = await this._getOrLoadChild(key.slice(0, current_index), char, dbGetter);
@@ -180,7 +213,7 @@ class TrieNode {
           this.deleteFromDbTx(dbUpdatesMap, key.slice(0, current_index));
 
           await this._updateHash(key.slice(0, current_index), dbGetter);
-          return { status: true, dbUpdatesMap };
+          return { status: [true], dbUpdatesMap };
         }
       }
 
@@ -466,7 +499,7 @@ class TrieNode {
     const newChildChar = this._key.at(current_index) as number;
     this._addChild(newChildChar);
     const newChild = this._children.get(newChildChar) as TrieNode;
-    await newChild.insert(this._key, dbGetter, dbUpdatesMap, current_index + 1);
+    await newChild.insert([this._key], dbGetter, dbUpdatesMap, current_index + 1);
 
     const prefix = this._key.slice(0, current_index);
 
