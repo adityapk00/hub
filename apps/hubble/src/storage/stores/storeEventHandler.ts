@@ -22,15 +22,16 @@ import AsyncLock from "async-lock";
 import { err, ok, ResultAsync } from "neverthrow";
 import { TypedEmitter } from "tiny-typed-emitter";
 import RocksDB, { RocksDbIteratorOptions, RocksDbTransaction } from "../db/rocksdb.js";
-import { RootPrefix, UserMessagePostfix, UserPostfix } from "../db/types.js";
+import { FID_BYTES, RootPrefix, UserMessagePostfix, UserPostfix } from "../db/types.js";
 import { StorageCache } from "./storageCache.js";
-import { makeTsHash, unpackTsHash } from "../db/message.js";
+import { makeMessagePrimaryKey, makeTsHash, unpackTsHash } from "../db/message.js";
 import {
   bytesCompare,
   CastAddMessage,
   CastRemoveMessage,
   LinkAddMessage,
   LinkRemoveMessage,
+  Message,
   ReactionAddMessage,
   ReactionRemoveMessage,
   UserDataAddMessage,
@@ -39,6 +40,7 @@ import {
 } from "@farcaster/core";
 import { logger } from "../../utils/logger.js";
 import { rsCreateStoreEventHandler, rsGetNextEventId, RustStoreEventHandler } from "../../rustfunctions.js";
+import { RustStoreBase } from "./rustStoreBase.js";
 
 const PRUNE_TIME_LIMIT_DEFAULT = 60 * 60 * 24 * 3 * 1000; // 3 days in ms
 const DEFAULT_LOCK_MAX_PENDING = 5_000;
@@ -207,16 +209,29 @@ class StoreEventHandler extends TypedEmitter<StoreEvents> {
     if (messageCount.isErr()) {
       return err(messageCount.error);
     }
-    const earliestTsHash = await this.getEarliestTsHash(fid, set);
-    if (earliestTsHash.isErr()) {
-      return err(earliestTsHash.error);
-    }
+
+    const prefix = makeMessagePrimaryKey(fid, set);
+    let firstKey: Buffer | undefined;
+    await this._db.forEachIteratorByPrefix(
+      prefix,
+      (key) => {
+        firstKey = key as Buffer;
+        return true; // Finish the iteration after the first key-value pair
+      },
+      { pageSize: 1 },
+    );
+
     let earliestTimestamp = 0;
     let earliestHash = new Uint8Array();
-    if (earliestTsHash.value !== undefined) {
-      const unpackResult = unpackTsHash(earliestTsHash.value);
-      if (unpackResult.isOk()) {
-        [earliestTimestamp, earliestHash] = unpackResult.value;
+
+    if (firstKey !== undefined) {
+      const earliestTsHash = Uint8Array.from(firstKey.subarray(1 + FID_BYTES + 1));
+
+      if (earliestTsHash !== undefined) {
+        const unpackResult = unpackTsHash(earliestTsHash);
+        if (unpackResult.isOk()) {
+          [earliestTimestamp, earliestHash] = unpackResult.value;
+        }
       }
     }
 
@@ -231,8 +246,11 @@ class StoreEventHandler extends TypedEmitter<StoreEvents> {
     return await this._storageCache.getMessageCount(fid, set, forceFetch);
   }
 
-  async getEarliestTsHash(fid: number, set: UserMessagePostfix): HubAsyncResult<Uint8Array | undefined> {
-    return await this._storageCache.getEarliestTsHash(fid, set);
+  async getEarliestTsHash<TAdd extends Message, TRemove extends Message>(
+    fid: number,
+    store: RustStoreBase<TAdd, TRemove>,
+  ): HubAsyncResult<Uint8Array | undefined> {
+    return await this._storageCache.getEarliestTsHash(fid, store);
   }
 
   async syncCache(): HubAsyncResult<void> {
@@ -300,12 +318,14 @@ class StoreEventHandler extends TypedEmitter<StoreEvents> {
     return ok({ events, nextPageEventId: lastEventId + 1 });
   }
 
-  public async isPrunable(
+  public async isPrunable<TAdd extends Message, TRemove extends Message>(
     message: PrunableMessage,
-    set: UserMessagePostfix,
-    sizeLimit: number,
+    store: RustStoreBase<TAdd, TRemove>,
   ): HubAsyncResult<boolean> {
     const units = await this.getCurrentStorageUnitsForFid(message.data.fid);
+
+    const set = store.postFix;
+    const sizeLimit = store.pruneSizeLimit;
 
     if (units.isErr()) {
       return err(units.error);
@@ -320,7 +340,7 @@ class StoreEventHandler extends TypedEmitter<StoreEvents> {
       return ok(false);
     }
 
-    const earliestTimestamp = await this.getEarliestTsHash(message.data.fid, set);
+    const earliestTimestamp = await this.getEarliestTsHash(message.data.fid, store);
     if (earliestTimestamp.isErr()) {
       return err(earliestTimestamp.error);
     }

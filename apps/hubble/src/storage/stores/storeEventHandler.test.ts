@@ -97,37 +97,42 @@ describe("commitTransaction", () => {
 describe("isPrunable", () => {
   test("returns false if there is no prune time limit", async () => {
     message = await Factories.CastAddMessage.create({ data: { timestamp: currentTime - 101 } });
-    await expect(eventHandler.isPrunable(message, UserPostfix.CastMessage, 10)).resolves.toEqual(ok(false));
+    const castStore = new CastStore(db, eventHandler, { pruneSizeLimit: 10 });
+    await expect(eventHandler.isPrunable(message, castStore)).resolves.toEqual(ok(false));
   });
 
   test("returns false if under size limit", async () => {
     message = await Factories.CastAddMessage.create({ data: { timestamp: currentTime - 50 } });
+    const castStore = new CastStore(db, eventHandler, { pruneSizeLimit: 1 });
     await putMessage(db, message);
+
     await expect(eventHandler.getCacheMessageCount(message.data.fid, UserPostfix.CastMessage)).resolves.toEqual(ok(1));
-    await expect(eventHandler.isPrunable(message, UserPostfix.CastMessage, 1)).resolves.toEqual(ok(false));
+    await expect(eventHandler.isPrunable(message, castStore)).resolves.toEqual(ok(false));
   });
   test("returns false if over size limit and message is later than earliest message", async () => {
     message = await Factories.CastAddMessage.create({ data: { timestamp: currentTime - 50 } });
+    const castStore = new CastStore(db, eventHandler, { pruneSizeLimit: 1 });
     await putMessage(db, message);
     await expect(eventHandler.getCacheMessageCount(message.data.fid, UserPostfix.CastMessage)).resolves.toEqual(ok(1));
 
     const laterMessage = await Factories.CastAddMessage.create({
       data: { fid: message.data.fid, timestamp: currentTime + 50 },
     });
-    await expect(eventHandler.isPrunable(laterMessage, UserPostfix.CastMessage, 1)).resolves.toEqual(ok(false));
+    await expect(eventHandler.isPrunable(laterMessage, castStore)).resolves.toEqual(ok(false));
   });
   test("returns true if over size limit and message is earlier than earliest message", async () => {
     message = await Factories.CastAddMessage.create({ data: { timestamp: currentTime - 50 } });
+    const castStore = new CastStore(db, eventHandler, { pruneSizeLimit: 1 });
     await putMessage(db, message);
     await expect(eventHandler.getCacheMessageCount(message.data.fid, UserPostfix.CastMessage)).resolves.toEqual(ok(1));
-    await expect(eventHandler.getEarliestTsHash(message.data.fid, UserPostfix.CastMessage)).resolves.toEqual(
+    await expect(eventHandler.getEarliestTsHash(message.data.fid, castStore)).resolves.toEqual(
       makeTsHash(message.data.timestamp, message.hash),
     );
 
     const earlierMessage = await Factories.CastAddMessage.create({
       data: { fid: message.data.fid, timestamp: currentTime - 75 },
     });
-    await expect(eventHandler.isPrunable(earlierMessage, UserPostfix.CastMessage, 1)).resolves.toEqual(ok(true));
+    await expect(eventHandler.isPrunable(earlierMessage, castStore)).resolves.toEqual(ok(true));
   });
 });
 

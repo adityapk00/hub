@@ -1,11 +1,10 @@
 import { getDefaultStoreLimit, LinkAddMessage, LinkRemoveMessage, Message, StoreType } from "@farcaster/hub-nodejs";
 import { makeFidKey } from "../../storage/db/message.js";
-import { RootPrefix, TSHASH_LENGTH, UserMessagePostfix, UserPostfix } from "../db/types.js";
-import { MessagesPage, PAGE_SIZE_MAX, PageOptions, StorePruneOptions } from "./types.js";
-import { Store } from "./store.js";
-import { err, ok, ResultAsync } from "neverthrow";
-import RocksDB, { RocksDbTransaction } from "../db/rocksdb.js";
-import { rsCreateReactionStore, RustDb, rsLinkStore, rustErrorToHubError } from "../../rustfunctions.js";
+import { UserPostfix } from "../db/types.js";
+import { MessagesPage, PageOptions, StorePruneOptions } from "./types.js";
+import { ResultAsync } from "neverthrow";
+import RocksDB from "../db/rocksdb.js";
+import { rsLinkStore, rustErrorToHubError } from "../../rustfunctions.js";
 import { RustStoreBase } from "./rustStoreBase.js";
 import storeEventHandler from "./storeEventHandler.js";
 
@@ -45,6 +44,10 @@ class LinkStore extends RustStoreBase<LinkAddMessage, LinkRemoveMessage> {
     );
 
     super(db, rustReactionStore, UserPostfix.LinkMessage, eventHandler, pruneSizeLimit);
+  }
+
+  override priorityPruneSetSupported(): boolean {
+    return true;
   }
 
   async getLinkAdd(fid: number, type: string, target: number): Promise<LinkAddMessage> {

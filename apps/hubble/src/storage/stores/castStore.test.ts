@@ -806,29 +806,29 @@ describe("pruneMessages", () => {
     });
 
     test("fails to merge message which would be immediately pruned", async () => {
-      await expect(eventHandler.getEarliestTsHash(fid, UserPostfix.CastMessage)).resolves.toEqual(ok(undefined));
+      await expect(eventHandler.getEarliestTsHash(fid, store)).resolves.toEqual(ok(undefined));
 
       await expect(sizePrunedStore.merge(add3)).resolves.toBeGreaterThan(0);
       await expect(eventHandler.getCacheMessageCount(fid, UserPostfix.CastMessage)).resolves.toEqual(ok(1));
-      await expect(eventHandler.getEarliestTsHash(fid, UserPostfix.CastMessage)).resolves.toEqual(
+      await expect(eventHandler.getEarliestTsHash(fid, store)).resolves.toEqual(
         makeTsHash(add3.data.timestamp, add3.hash),
       );
 
       await expect(sizePrunedStore.merge(add2)).resolves.toBeGreaterThan(0);
       await expect(eventHandler.getCacheMessageCount(fid, UserPostfix.CastMessage)).resolves.toEqual(ok(2));
-      await expect(eventHandler.getEarliestTsHash(fid, UserPostfix.CastMessage)).resolves.toEqual(
+      await expect(eventHandler.getEarliestTsHash(fid, store)).resolves.toEqual(
         makeTsHash(add2.data.timestamp, add2.hash),
       );
 
       await expect(sizePrunedStore.merge(remove2)).resolves.toBeGreaterThan(0);
       await expect(eventHandler.getCacheMessageCount(fid, UserPostfix.CastMessage)).resolves.toEqual(ok(2));
-      await expect(eventHandler.getEarliestTsHash(fid, UserPostfix.CastMessage)).resolves.toEqual(
+      await expect(eventHandler.getEarliestTsHash(fid, store)).resolves.toEqual(
         makeTsHash(remove2.data.timestamp, remove2.hash),
       );
 
       await expect(sizePrunedStore.merge(add4)).resolves.toBeGreaterThan(0);
       await expect(eventHandler.getCacheMessageCount(fid, UserPostfix.CastMessage)).resolves.toEqual(ok(3));
-      await expect(eventHandler.getEarliestTsHash(fid, UserPostfix.CastMessage)).resolves.toEqual(
+      await expect(eventHandler.getEarliestTsHash(fid, store)).resolves.toEqual(
         makeTsHash(remove2.data.timestamp, remove2.hash),
       );
 
@@ -845,7 +845,7 @@ describe("pruneMessages", () => {
       // merging add5 succeeds because while the store is at capacity, add5 would not be pruned
       await expect(sizePrunedStore.merge(add5)).resolves.toBeGreaterThan(0);
       await expect(eventHandler.getCacheMessageCount(fid, UserPostfix.CastMessage)).resolves.toEqual(ok(4));
-      await expect(eventHandler.getEarliestTsHash(fid, UserPostfix.CastMessage)).resolves.toEqual(
+      await expect(eventHandler.getEarliestTsHash(fid, store)).resolves.toEqual(
         makeTsHash(remove2.data.timestamp, remove2.hash),
       );
 
@@ -856,7 +856,7 @@ describe("pruneMessages", () => {
     });
 
     test("fails to merge messages in bundles which would be immediately pruned", async () => {
-      await expect(eventHandler.getEarliestTsHash(fid, UserPostfix.CastMessage)).resolves.toEqual(ok(undefined));
+      await expect(eventHandler.getEarliestTsHash(fid, store)).resolves.toEqual(ok(undefined));
 
       // These should all merge fine
       let results = await sizePrunedStore.mergeMessages([add3, add2, remove2, add4]);

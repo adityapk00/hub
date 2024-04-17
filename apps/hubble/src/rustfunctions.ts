@@ -377,6 +377,10 @@ export const rsGetMessage = async (
 };
 
 /** This is dynamically dispatched to any Store that you pass in */
+export const rsGetEarliestTsHash = async (store: RustDynStore, fid: number): Promise<Buffer> => {
+  return await lib.getEarliestTsHash.call(store, fid);
+};
+
 export const rsMerge = async (store: RustDynStore, messageBytes: Uint8Array): Promise<Buffer> => {
   return await lib.merge.call(store, messageBytes);
 };

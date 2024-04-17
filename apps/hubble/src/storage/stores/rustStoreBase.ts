@@ -8,12 +8,36 @@ import {
   revoke,
   rustErrorToHubError,
   rsMergeMany,
+  rsGetEarliestTsHash,
 } from "../../rustfunctions.js";
 import StoreEventHandler from "./storeEventHandler.js";
 import { MessagesPage, PageOptions } from "./types.js";
 import { UserMessagePostfix } from "../db/types.js";
 import RocksDB from "../db/rocksdb.js";
 import { ResultAsync, err, ok } from "neverthrow";
+
+export type DeepPartial<T> = T extends object
+  ? {
+      [P in keyof T]?: DeepPartial<T[P]>;
+    }
+  : T;
+
+const deepPartialEquals = <T>(partial: DeepPartial<T>, whole: T) => {
+  if (typeof partial === "object") {
+    for (const key in partial) {
+      if (partial[key] !== undefined) {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy code, avoid using ignore for new code
+        if (!deepPartialEquals(partial[key] as any, whole[key as keyof T] as any)) {
+          return false;
+        }
+      }
+    }
+  } else {
+    return partial === whole;
+  }
+
+  return true;
+};
 
 /**
  * Base class with common methods for all stores implemented in Rust
@@ -43,6 +67,14 @@ export abstract class RustStoreBase<TAdd extends Message, TRemove extends Messag
     return this._pruneSizeLimit;
   }
 
+  get postFix(): UserMessagePostfix {
+    return this._postfix;
+  }
+
+  priorityPruneSetSupported(): boolean {
+    return false;
+  }
+
   async mergeMessages(messages: Message[]): Promise<Map<number, HubResult<number>>> {
     const mergeResults: Map<number, HubResult<number>> = new Map();
 
@@ -53,8 +85,7 @@ export abstract class RustStoreBase<TAdd extends Message, TRemove extends Messag
       const prunableResult = await this._eventHandler.isPrunable(
         // biome-ignore lint/suspicious/noExplicitAny: legacy code, avoid using ignore for new code
         message as any,
-        this._postfix,
-        this._pruneSizeLimit,
+        this,
       );
       if (prunableResult.isErr()) {
         mergeResults.set(i, err(prunableResult.error));
@@ -100,8 +131,7 @@ export abstract class RustStoreBase<TAdd extends Message, TRemove extends Messag
     const prunableResult = await this._eventHandler.isPrunable(
       // biome-ignore lint/suspicious/noExplicitAny: legacy code, avoid using ignore for new code
       message as any,
-      this._postfix,
-      this._pruneSizeLimit,
+      this,
     );
     if (prunableResult.isErr()) {
       throw prunableResult.error;
@@ -196,5 +226,9 @@ export abstract class RustStoreBase<TAdd extends Message, TRemove extends Messag
       }) ?? [];
 
     return { messages, nextPageToken: messages_page.nextPageToken };
+  }
+
+  async getEarliestTsHash(fid: number): HubAsyncResult<Uint8Array> {
+    return await ResultAsync.fromPromise(rsGetEarliestTsHash(this._rustStore, fid), rustErrorToHubError);
   }
 }

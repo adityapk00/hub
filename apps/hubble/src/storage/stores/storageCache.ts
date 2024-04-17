@@ -11,7 +11,7 @@ import {
   OnChainEventType,
   StorageRentOnChainEvent,
 } from "@farcaster/hub-nodejs";
-import { err, ok } from "neverthrow";
+import { err, ok, ResultAsync } from "neverthrow";
 import RocksDB from "../db/rocksdb.js";
 import { FID_BYTES, OnChainEventPostfix, RootPrefix, UserMessagePostfix } from "../db/types.js";
 import { logger } from "../../utils/logger.js";
@@ -19,6 +19,7 @@ import { makeFidKey, makeMessagePrimaryKey, makeTsHash, typeToSetPostfix } from 
 import { bytesCompare, getFarcasterTime, HubAsyncResult } from "@farcaster/core";
 import { forEachOnChainEvent } from "../db/onChainEvent.js";
 import { addProgressBar } from "../../utils/progressBars.js";
+import { RustStoreBase } from "./rustStoreBase.js";
 
 const MAX_PENDING_MESSAGE_COUNT_SCANS = 100;
 
@@ -165,7 +166,12 @@ export class StorageCache {
     return ok(slot.units);
   }
 
-  async getEarliestTsHash(fid: number, set: UserMessagePostfix): HubAsyncResult<Uint8Array | undefined> {
+  async getEarliestTsHash<TAdd extends Message, TRemove extends Message>(
+    fid: number,
+    store: RustStoreBase<TAdd, TRemove>,
+  ): HubAsyncResult<Uint8Array | undefined> {
+    const set = store.postFix;
+
     const key = makeKey(fid, set);
     const messageCount = await this.getMessageCount(fid, set);
     if (messageCount.isErr()) {
@@ -176,25 +182,18 @@ export class StorageCache {
     }
     const value = this._earliestTsHashes.get(key);
     if (value === undefined) {
-      const prefix = makeMessagePrimaryKey(fid, set);
+      const earliestTsHashResult = await store.getEarliestTsHash(fid);
+      if (earliestTsHashResult.isErr()) {
+        return err(earliestTsHashResult.error);
+      }
 
-      let firstKey: Buffer | undefined;
-      await this._db.forEachIteratorByPrefix(prefix, (key) => {
-        firstKey = key as Buffer;
-        return true; // Finish the iteration after the first key-value pair
-      });
-
-      if (firstKey === undefined) {
+      if (earliestTsHashResult.value.length === 0) {
         return ok(undefined);
       }
 
-      if (firstKey && firstKey.length === 0) {
-        return err(new HubError("unavailable.storage_failure", "could not read earliest message from db"));
-      }
-
-      const tsHash = Uint8Array.from(firstKey.subarray(1 + FID_BYTES + 1));
-      this._earliestTsHashes.set(key, tsHash);
-      return ok(tsHash);
+      const earliestTsHash = new Uint8Array(earliestTsHashResult.value);
+      this._earliestTsHashes.set(key, earliestTsHash);
+      return ok(earliestTsHash);
     } else {
       return ok(value);
     }
@@ -246,6 +245,7 @@ export class StorageCache {
         log.error(`error: could not make ts hash for message ${message.hash}`);
         return;
       }
+
       const currentEarliest = this._earliestTsHashes.get(key);
       if (currentEarliest === undefined || bytesCompare(currentEarliest, tsHashResult.value) > 0) {
         this._earliestTsHashes.set(key, tsHashResult.value);

@@ -2,7 +2,7 @@ use super::{
     bytes_compare, delete_message_transaction, get_message, hub_error_to_js_throw,
     make_message_primary_key, message, message_decode, put_message_transaction,
     utils::{self, encode_messages_to_js_object, get_page_options, get_store, vec_to_u8_24},
-    MessagesPage, StoreEventHandler, TS_HASH_LENGTH,
+    MessagesPage, StoreEventHandler, FID_BYTES, TS_HASH_LENGTH,
 };
 use crate::{
     db::{RocksDB, RocksDbTransactionBatch},
@@ -10,7 +10,7 @@ use crate::{
     store::make_ts_hash,
 };
 use crate::{logger::LOGGER, THREAD_POOL};
-use neon::types::{Finalize, JsBuffer, JsNumber, JsString};
+use neon::types::{Finalize, JsBuffer, JsNumber, JsString, JsUndefined};
 use neon::{context::Context, types::JsArray};
 use neon::{context::FunctionContext, result::JsResult, types::JsPromise};
 use neon::{object::Object, types::buffer::TypedArray};
@@ -136,6 +136,13 @@ pub trait StoreDef: Send + Sync {
 
     fn find_merge_add_conflicts(&self, db: &RocksDB, message: &Message) -> Result<(), HubError>;
     fn find_merge_remove_conflicts(&self, db: &RocksDB, message: &Message) -> Result<(), HubError>;
+
+    fn priority_prune_set_supported(&self) -> bool {
+        return false;
+    }
+    fn is_priority_prune(&self, _message: &Message) -> bool {
+        return false;
+    }
 
     fn make_add_key(&self, message: &Message) -> Result<Vec<u8>, HubError>;
     fn make_remove_key(&self, message: &Message) -> Result<Vec<u8>, HubError>;
@@ -366,6 +373,43 @@ impl Store {
 
     pub fn postfix(&self) -> u8 {
         self.store_def.postfix()
+    }
+
+    pub fn get_earliest_ts_hash(&self, fid: u32) -> Result<Option<Vec<u8>>, HubError> {
+        let prefix = make_message_primary_key(fid, self.store_def.postfix(), None);
+        let mut earliest_ts_hash = None;
+
+        // If the store supports priority prunes, then we need to find the earliest message that is
+        // a part of the priority prune set.
+        // If we can't find such a message, then the earliest_ts_hash is the jsut the earliest message in the store
+        if self.store_def.priority_prune_set_supported() {
+            self.db.for_each_iterator_by_prefix_unbounded(
+                &prefix,
+                &PageOptions::default(),
+                |key, value| {
+                    let message = message_decode(&value)?;
+                    if self.store_def.is_priority_prune(&message) {
+                        earliest_ts_hash = Some(key[(1 + FID_BYTES + 1)..].to_vec());
+                        Ok(true)
+                    } else {
+                        Ok(false)
+                    }
+                },
+            )?;
+        }
+
+        if earliest_ts_hash.is_none() {
+            self.db.for_each_iterator_by_prefix_unbounded(
+                &prefix,
+                &PageOptions::default(),
+                |key, _value| {
+                    earliest_ts_hash = Some(key[(1 + FID_BYTES + 1)..].to_vec());
+                    Ok(true)
+                },
+            )?;
+        }
+
+        Ok(earliest_ts_hash)
     }
 
     pub fn get_add(
@@ -708,45 +752,72 @@ impl Store {
 
         let mut count = cached_count;
         let prune_size_limit = self.store_def.get_prune_size_limit();
+        let mut txn = self.db.txn();
 
         let prefix = &make_message_primary_key(fid, self.store_def.postfix(), None);
+
+        // A closure that does the actual pruning. It returns true if the iteration should stop, and false
+        // if it should continue
+        let mut do_prune = |message: &Message| -> Result<bool, HubError> {
+            if count <= (prune_size_limit as u64) * units {
+                return Ok(true); // Stop the iteration, nothing left to prune
+            }
+
+            if self.store_def.is_add_type(&message) {
+                let ts_hash =
+                    make_ts_hash(message.data.as_ref().unwrap().timestamp, &message.hash)?;
+
+                self.delete_add_transaction(&mut txn, &ts_hash, &message)?;
+            } else if self.store_def.remove_type_supported()
+                && self.store_def.is_remove_type(&message)
+            {
+                self.delete_remove_transaction(&mut txn, &message)?;
+            }
+
+            // Event Handler
+            let mut hub_event = self.store_def.prune_event_args(&message);
+            let id = self
+                .store_event_handler
+                .commit_transaction(&mut txn, &mut hub_event)?;
+
+            count -= 1;
+
+            hub_event.id = id;
+            pruned_events.push(hub_event);
+
+            Ok(false)
+        };
+
+        // First, check if this store does priority pruning
+        if self.store_def.priority_prune_set_supported() {
+            // If a store has PriorityPrune, then the messages that are in the priority prune set
+            // are pruned first
+            self.db.for_each_iterator_by_prefix_unbounded(
+                prefix,
+                &PageOptions::default(),
+                |_key, value| {
+                    let message = message_decode(&value)?;
+                    if self.store_def.is_priority_prune(&message) {
+                        return do_prune(&message);
+                    } else {
+                        Ok(false) // Continue the iteration
+                    }
+                },
+            )?;
+        }
+
         self.db.for_each_iterator_by_prefix_unbounded(
             prefix,
             &PageOptions::default(),
             |_key, value| {
-                if count <= (prune_size_limit as u64) * units {
-                    return Ok(true); // Stop the iteration, nothing left to prune
-                }
-
                 // Value is a message, so try to decode it
                 let message = message_decode(value)?;
 
-                let mut txn = self.db.txn();
-                if self.store_def.is_add_type(&message) {
-                    let ts_hash =
-                        make_ts_hash(message.data.as_ref().unwrap().timestamp, &message.hash)?;
-                    self.delete_add_transaction(&mut txn, &ts_hash, &message)?;
-                } else if self.store_def.remove_type_supported()
-                    && self.store_def.is_remove_type(&message)
-                {
-                    self.delete_remove_transaction(&mut txn, &message)?;
-                }
-
-                // Event Handler
-                let mut hub_event = self.store_def.prune_event_args(&message);
-                let id = self
-                    .store_event_handler
-                    .commit_transaction(&mut txn, &mut hub_event)?;
-
-                self.db.commit(txn)?;
-                count -= 1;
-
-                hub_event.id = id;
-                pruned_events.push(hub_event);
-
-                Ok(false) // Continue the iteration
+                do_prune(&message)
             },
         )?;
+
+        self.db.commit(txn)?;
 
         Ok(pruned_events)
     }
@@ -773,6 +844,35 @@ impl Store {
 // This means the NodeJS code can pass in any store, and the Rust code will call the correct method
 // for that store
 impl Store {
+    pub fn js_get_earliest_ts_hash(mut cx: FunctionContext) -> JsResult<JsPromise> {
+        let store = get_store(&mut cx)?;
+
+        let fid = cx.argument::<JsNumber>(0).unwrap().value(&mut cx) as u32;
+
+        let channel = cx.channel();
+        let (deferred, promise) = cx.promise();
+
+        THREAD_POOL.lock().unwrap().execute(move || {
+            let result = store.get_earliest_ts_hash(fid);
+
+            deferred.settle_with(&channel, move |mut cx| match result {
+                Ok(Some(ts_hash)) => {
+                    let mut js_buffer = cx.buffer(24).unwrap();
+                    js_buffer.as_mut_slice(&mut cx).copy_from_slice(&ts_hash);
+                    Ok(js_buffer)
+                }
+                Ok(None) => {
+                    // Return an empty buffer if there were no messages
+                    let js_buffer = cx.buffer(0).unwrap();
+                    Ok(js_buffer)
+                }
+                Err(e) => cx.throw_error(format!("{}/{}", e.code, e.message)),
+            });
+        });
+
+        Ok(promise)
+    }
+
     pub fn js_merge(mut cx: FunctionContext) -> JsResult<JsPromise> {
         let store = get_store(&mut cx)?;
 

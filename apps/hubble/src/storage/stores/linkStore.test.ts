@@ -874,7 +874,7 @@ describe("pruneMessages", () => {
       }
     });
 
-    test("prunes earliest messages", async () => {
+    test("prunes earliest messages by prune priority", async () => {
       const messages = [add1, remove2, add3, remove4, add5];
       for (const message of messages) {
         await sizePrunedStore.merge(message);
@@ -884,7 +884,7 @@ describe("pruneMessages", () => {
       expect(result.isOk()).toBeTruthy();
       expect(result._unsafeUnwrap().length).toEqual(2);
 
-      expect(prunedMessages).toEqual([add1, remove2]);
+      expect(prunedMessages).toEqual([remove2, remove4]);
     });
 
     test("no-ops when adds have been removed", async () => {

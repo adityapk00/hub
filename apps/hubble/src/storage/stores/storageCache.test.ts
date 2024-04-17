@@ -6,8 +6,14 @@ import { UserPostfix } from "../db/types.js";
 import { StorageCache } from "./storageCache.js";
 import { putOnChainEventTransaction } from "../db/onChainEvent.js";
 import { sleep } from "../../utils/crypto.js";
+import StoreEventHandler from "./storeEventHandler.js";
+import CastStore from "./castStore.js";
+import ReactionStore from "./reactionStore.js";
 
 const db = jestRocksDB("engine.storageCache.test");
+const eventHandler = new StoreEventHandler(db);
+const castStore = new CastStore(db, eventHandler);
+const reactionStore = new ReactionStore(db, eventHandler);
 
 let cache: StorageCache;
 
@@ -143,9 +149,7 @@ describe("getMessageCount", () => {
 
 describe("getEarliestTsHash", () => {
   test("returns undefined if there are no messages", async () => {
-    await expect(cache.getEarliestTsHash(Factories.Fid.build(), UserPostfix.CastMessage)).resolves.toEqual(
-      ok(undefined),
-    );
+    await expect(cache.getEarliestTsHash(Factories.Fid.build(), castStore)).resolves.toEqual(ok(undefined));
   });
 
   test("returns the earliest tsHash by scanning the db on first use", async () => {
@@ -156,13 +160,13 @@ describe("getEarliestTsHash", () => {
     await putMessage(db, second);
     await putMessage(db, first);
 
-    await expect(cache.getEarliestTsHash(fid, UserPostfix.CastMessage)).resolves.toEqual(
+    await expect(cache.getEarliestTsHash(fid, castStore)).resolves.toEqual(
       makeTsHash(first.data.timestamp, first.hash),
     );
 
     await putMessage(db, third);
     // Unchanged
-    await expect(cache.getEarliestTsHash(fid, UserPostfix.CastMessage)).resolves.toEqual(
+    await expect(cache.getEarliestTsHash(fid, castStore)).resolves.toEqual(
       makeTsHash(first.data.timestamp, first.hash),
     );
   });
@@ -240,11 +244,11 @@ describe("processEvent", () => {
     let event = HubEvent.create({ type: HubEventType.MERGE_MESSAGE, mergeMessageBody: { message: middleMessage } });
 
     // Earliest tsHash is undefined initially
-    await expect(cache.getEarliestTsHash(fid, UserPostfix.CastMessage)).resolves.toEqual(ok(undefined));
+    await expect(cache.getEarliestTsHash(fid, castStore)).resolves.toEqual(ok(undefined));
     await cache.processEvent(event);
 
     // Earliest tsHash is set
-    await expect(cache.getEarliestTsHash(fid, UserPostfix.CastMessage)).resolves.toEqual(
+    await expect(cache.getEarliestTsHash(fid, castStore)).resolves.toEqual(
       makeTsHash(middleMessage.data.timestamp, middleMessage.hash),
     );
 
@@ -254,7 +258,7 @@ describe("processEvent", () => {
     });
     event = HubEvent.create({ type: HubEventType.MERGE_MESSAGE, mergeMessageBody: { message: laterMessage } });
     await cache.processEvent(event);
-    await expect(cache.getEarliestTsHash(fid, UserPostfix.CastMessage)).resolves.toEqual(
+    await expect(cache.getEarliestTsHash(fid, castStore)).resolves.toEqual(
       makeTsHash(middleMessage.data.timestamp, middleMessage.hash),
     );
 
@@ -264,7 +268,7 @@ describe("processEvent", () => {
     });
     event = HubEvent.create({ type: HubEventType.MERGE_MESSAGE, mergeMessageBody: { message: earlierMessage } });
     await cache.processEvent(event);
-    await expect(cache.getEarliestTsHash(fid, UserPostfix.CastMessage)).resolves.toEqual(
+    await expect(cache.getEarliestTsHash(fid, castStore)).resolves.toEqual(
       makeTsHash(earlierMessage.data.timestamp, earlierMessage.hash),
     );
   });
@@ -287,18 +291,18 @@ describe("processEvent", () => {
     await putMessage(db, firstMessage);
     await putMessage(db, laterMessage);
     await cache.syncFromDb();
-    await expect(cache.getEarliestTsHash(fid, UserPostfix.ReactionMessage)).resolves.toEqual(
+    await expect(cache.getEarliestTsHash(fid, reactionStore)).resolves.toEqual(
       makeTsHash(firstMessage.data.timestamp, firstMessage.hash),
     );
 
     await cache.processEvent(laterEvent);
     // Unchanged
-    await expect(cache.getEarliestTsHash(fid, UserPostfix.ReactionMessage)).resolves.toEqual(
+    await expect(cache.getEarliestTsHash(fid, reactionStore)).resolves.toEqual(
       makeTsHash(firstMessage.data.timestamp, firstMessage.hash),
     );
 
     await cache.processEvent(firstEvent);
     // Unset
-    await expect(cache.getEarliestTsHash(fid, UserPostfix.ReactionMessage)).resolves.toEqual(ok(undefined));
+    await expect(cache.getEarliestTsHash(fid, reactionStore)).resolves.toEqual(ok(undefined));
   });
 });

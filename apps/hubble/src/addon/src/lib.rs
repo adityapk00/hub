@@ -131,6 +131,7 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("getMessage", Store::js_get_message)?;
 
     // Generic methods that can accept any store
+    cx.export_function("getEarliestTsHash", Store::js_get_earliest_ts_hash)?;
     cx.export_function("merge", Store::js_merge)?;
     cx.export_function("mergeMany", Store::js_merge_many)?;
     cx.export_function("revoke", Store::js_revoke)?;

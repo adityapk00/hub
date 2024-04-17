@@ -624,6 +624,15 @@ impl StoreDef for LinkStore {
             })
     }
 
+    fn priority_prune_set_supported(&self) -> bool {
+        true
+    }
+
+    fn is_priority_prune(&self, message: &Message) -> bool {
+        // For links, the Link Removes are pruned before the Link Adds
+        LinkStore::is_remove_type(&self, message)
+    }
+
     fn build_secondary_indices(
         &self,
         txn: &mut RocksDbTransactionBatch,
